@@ -1,0 +1,6 @@
+[
+  {"name": "Q-SYS Core 110f",    "ip": "192.168.1.10", "port": 1710},
+  {"name": "Extron DTP Switch",  "ip": "192.168.1.20", "port": 23},
+  {"name": "Biamp TesiraFORTE",  "ip": "192.168.1.30", "port": 23},
+  {"name": "Crestron CP4N",      "ip": "192.168.1.40", "port": 41794}
+]

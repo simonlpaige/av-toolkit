@@ -1,0 +1,206 @@
+--[[
+dsp-health.qplug — Continuous drift monitor for a running Q-SYS design.
+
+Captures a baseline of every mute and gain control on every named
+component, then re-scans on a timer and raises an alert when something
+has moved:
+
+  - a gain that has drifted more than the threshold from its baseline
+  - a mute that has changed state
+  - a device "status" control that is no longer OK
+
+The Alert pin can drive a GPIO, a UCI indicator, or an email/SNMP block.
+Press Rebaseline after intentional changes (it also clears the log).
+
+Install:
+  Copy to  Documents/QSC/Q-Sys Designer/Plugins/  and restart Designer.
+  Drag "AV Toolkit > DSP Health Monitor" into the schematic.
+
+Only components with a Code Name and Script Access enabled are visible
+to scripts. User-facing volume controls will legitimately move — list
+those component names in the Ignore box (comma-separated substrings) so
+the alert means something.
+
+Simon L. Paige — AV Toolkit
+License: MIT
+--]]
+
+PluginInfo = {
+  Name = "AV Toolkit~DSP Health Monitor",
+  Version = "2.0.0",
+  Id = "com.simonpaige.av-toolkit.dsp-health",
+  Description = "Baselines mute/gain controls and alerts on drift, mute changes and device faults.",
+  Author = "Simon L. Paige",
+  ShowDebug = true
+}
+
+function GetColor(props)
+  return { 102, 153, 204 }
+end
+
+function GetPrettyName(props)
+  return "DSP Health Monitor " .. PluginInfo.Version
+end
+
+function GetProperties()
+  return {
+    { Name = "Scan Interval (s)",    Type = "integer", Min = 5, Max = 3600, Value = 30 },
+    { Name = "Drift Threshold (dB)", Type = "integer", Min = 1, Max = 40,   Value = 3 },
+    { Name = "Log Lines",            Type = "integer", Min = 5, Max = 200,  Value = 40 },
+  }
+end
+
+function GetControls(props)
+  return {
+    { Name = "Rebaseline", ControlType = "Button",    ButtonType = "Trigger",  UserPin = true, PinStyle = "Input" },
+    { Name = "Ignore",     ControlType = "Text",                               UserPin = true, PinStyle = "Both" },
+    { Name = "Alert",      ControlType = "Indicator", IndicatorType = "Led",   UserPin = true, PinStyle = "Output" },
+    { Name = "IssueCount", ControlType = "Indicator", IndicatorType = "Text",  UserPin = true, PinStyle = "Output" },
+    { Name = "Current",    ControlType = "Indicator", IndicatorType = "Text",  UserPin = true, PinStyle = "Output" },
+    { Name = "Log",        ControlType = "Indicator", IndicatorType = "Text",  UserPin = true, PinStyle = "Output" },
+  }
+end
+
+function GetControlLayout(props)
+  local layout = {}
+  local graphics = {
+    { Type = "Label", Text = "Alert", Position = { 120, 12 }, Size = { 40, 16 }, FontSize = 10, HTextAlign = "Right" },
+    { Type = "Label", Text = "Ignore (names, comma-separated)", Position = { 10, 44 }, Size = { 200, 16 },
+      FontSize = 10, HTextAlign = "Left" },
+    { Type = "Label", Text = "Current issues", Position = { 10, 86 }, Size = { 200, 16 }, FontSize = 10, HTextAlign = "Left" },
+    { Type = "Label", Text = "Log", Position = { 10, 232 }, Size = { 200, 16 }, FontSize = 10, HTextAlign = "Left" },
+  }
+  layout["Rebaseline"] = { PrettyName = "Rebaseline",  Style = "Button", Legend = "Rebaseline", Position = { 10, 10 }, Size = { 100, 24 } }
+  layout["Alert"]      = { PrettyName = "Alert",       Style = "Led",    Color = { 255, 0, 0 }, Position = { 165, 12 }, Size = { 20, 20 } }
+  layout["IssueCount"] = { PrettyName = "Issue Count", Style = "Text",   Position = { 195, 10 },  Size = { 45, 20 } }
+  layout["Ignore"]     = { PrettyName = "Ignore",      Style = "Text",   Position = { 10, 60 },   Size = { 400, 20 } }
+  layout["Current"]    = { PrettyName = "Current",     Style = "Text",   Position = { 10, 102 },  Size = { 400, 124 },
+                           HTextAlign = "Left", VTextAlign = "Top", WordWrap = true }
+  layout["Log"]        = { PrettyName = "Log",         Style = "Text",   Position = { 10, 248 },  Size = { 400, 200 },
+                           HTextAlign = "Left", VTextAlign = "Top", WordWrap = true }
+  return layout, graphics
+end
+
+--------------------------------------------------------------------------
+-- Runtime
+--------------------------------------------------------------------------
+if Controls then
+
+  local interval  = Properties["Scan Interval (s)"].Value
+  local threshold = Properties["Drift Threshold (dB)"].Value
+  local maxLines  = Properties["Log Lines"].Value
+
+  local baseline = {}        -- "Component : control" -> { kind = "gain"|"mute", value = n }
+  local baselineCount = 0
+  local lastIssues = {}      -- issue text -> true, from the previous scan
+  local log = {}
+  local scanTimer = Timer.New()
+
+  local function isNamed(controlName, suffix)
+    local n = string.lower(controlName)
+    return n == suffix or n:sub(-(#suffix + 1)) == "." .. suffix
+  end
+
+  local function ignoreList()
+    local list = {}
+    for word in string.gmatch(Controls.Ignore.String or "", "[^,;\n]+") do
+      word = word:match("^%s*(.-)%s*$")
+      if word ~= "" then table.insert(list, string.lower(word)) end
+    end
+    return list
+  end
+
+  local function isIgnored(name, list)
+    local lower = string.lower(name)
+    for _, word in ipairs(list) do
+      if lower:find(word, 1, true) then return true end
+    end
+    return false
+  end
+
+  local function addLog(line)
+    table.insert(log, os.date("%m-%d %H:%M:%S  ") .. line)
+    while #log > maxLines do table.remove(log, 1) end
+    Controls.Log.String = table.concat(log, "\n")
+    print(line)
+  end
+
+  -- Calls visit(componentName, control) for every control on every visible component.
+  local function eachControl(visit)
+    local ignored = ignoreList()
+    for _, comp in ipairs(Component.GetComponents()) do
+      local name = comp.Name or ""
+      if name ~= "" and not isIgnored(name, ignored) then
+        local ok, controls = pcall(Component.GetControls, name)
+        if ok and controls then
+          for _, ctl in ipairs(controls) do visit(name, ctl) end
+        end
+      end
+    end
+  end
+
+  local function CaptureBaseline()
+    baseline, baselineCount, lastIssues = {}, 0, {}
+    eachControl(function(name, ctl)
+      local cname = ctl.Name or ""
+      local kind = (isNamed(cname, "gain") and "gain") or (isNamed(cname, "mute") and "mute") or nil
+      if kind and type(ctl.Value) == "number" then
+        baseline[name .. " : " .. cname] = { kind = kind, value = ctl.Value }
+        baselineCount = baselineCount + 1
+      end
+    end)
+    Controls.Alert.Boolean = false
+    Controls.IssueCount.String = "0"
+    Controls.Current.String = ""
+    addLog("Baseline captured: " .. baselineCount .. " controls.")
+  end
+
+  local function HealthScan()
+    local issues = {}
+    eachControl(function(name, ctl)
+      local cname = ctl.Name or ""
+      local key = name .. " : " .. cname
+      local base = baseline[key]
+      if base and type(ctl.Value) == "number" then
+        if base.kind == "gain" and math.abs(ctl.Value - base.value) > threshold then
+          table.insert(issues, string.format("DRIFT  %s  %.1f -> %.1f dB", key, base.value, ctl.Value))
+        elseif base.kind == "mute" and ctl.Value ~= base.value then
+          table.insert(issues, string.format("MUTE   %s  now %s", key, ctl.Value == 1 and "MUTED" or "unmuted"))
+        end
+      elseif string.lower(cname) == "status" and type(ctl.Value) == "number" and ctl.Value ~= 0 then
+        table.insert(issues, "FAULT  " .. name .. "  " .. tostring(ctl.String))
+      end
+    end)
+    table.sort(issues)
+
+    -- Log only what is new or cleared since the last scan.
+    local now = {}
+    for _, issue in ipairs(issues) do
+      now[issue] = true
+      if not lastIssues[issue] then addLog(issue) end
+    end
+    for issue in pairs(lastIssues) do
+      if not now[issue] then addLog("CLEARED  " .. issue) end
+    end
+    lastIssues = now
+
+    Controls.Alert.Boolean = (#issues > 0)
+    Controls.IssueCount.String = tostring(#issues)
+    Controls.Current.String = (#issues == 0)
+      and ("Healthy - watching " .. baselineCount .. " controls.")
+      or table.concat(issues, "\n")
+  end
+
+  scanTimer.EventHandler = HealthScan
+  Controls.Rebaseline.EventHandler = function()
+    log = {}
+    CaptureBaseline()
+  end
+
+  -- Let the design settle (snapshots load, devices come online) before baselining.
+  Timer.CallAfter(function()
+    CaptureBaseline()
+    scanTimer:Start(interval)
+  end, 5)
+
+end

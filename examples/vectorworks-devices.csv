@@ -1,0 +1,19 @@
+Object Name,Class,Layer,Symbol,X,Y,Name,Make,Model,Room
+DSP-1,AV-Devices,Rack Elevation,,0,0,DSP-1,QSC,Core 110f,Rack 1 - Courtroom 3A
+AMP-1,AV-Devices,Rack Elevation,,0,0,AMP-1,QSC,SPA4-100,Rack 1 - Courtroom 3A
+AMP-2,AV-Devices,Rack Elevation,,0,0,AMP-2,QSC,SPA4-100,Rack 1 - Courtroom 3A
+MTX-1,AV-Devices,Rack Elevation,,0,0,MTX-1,Extron,DTP CrossPoint 84 4K,Rack 1 - Courtroom 3A
+TX-1,AV-Devices,Floor Plan,,0,0,TX-1,Extron,DTP T HWP 4K 231D,Courtroom 3A
+TX-2,AV-Devices,Floor Plan,,0,0,TX-2,Extron,DTP T HWP 4K 231D,Courtroom 3A
+TX-3,AV-Devices,Floor Plan,,0,0,TX-3,Extron,DTP T HWP 4K 231D,Courtroom 3A
+TX-4,AV-Devices,Floor Plan,,0,0,TX-4,Extron,DTP T HWP 4K 231D,Courtroom 3A
+MIC-1,AV-Devices,RCP,,0,0,MIC-1,Shure,MXA920W-S,Courtroom 3A
+MIC-2,AV-Devices,RCP,,0,0,MIC-2,Shure,MXA920W-S,Courtroom 3A
+MIC-3,AV-Devices,RCP,,0,0,MIC-3,Shure,MXA920W-S,Courtroom 3A
+CP-1,AV-Devices,Rack Elevation,,0,0,CP-1,Crestron,CP4N,Rack 1 - Courtroom 3A
+TP-1,AV-Devices,Floor Plan,,0,0,TP-1,Crestron,TSW-1070-B-S,Courtroom 3A
+TP-2,AV-Devices,Floor Plan,,0,0,TP-2,Crestron,TSW-1070-B-S,Courtroom 3A
+SW-1,AV-Devices,Rack Elevation,,0,0,SW-1,Netgear,M4250-26G4F-PoE+,Rack 1 - Courtroom 3A
+DISP-1,AV-Devices,Floor Plan,,0,0,DISP-1,Samsung,QM85C,Courtroom 3A
+DISP-2,AV-Devices,Floor Plan,,0,0,DISP-2,Samsung,QM85C,Courtroom 3A
+CAM-1,AV-Devices,RCP,,0,0,CAM-1,PTZOptics,PT30X-4K-G3,Courtroom 3A

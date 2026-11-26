@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+
+# Device backups and snapshots hold site-specific data
+extron/backups/
+
+# Built scanner
+general/av-net-scanner
+general/av-net-scanner.exe
