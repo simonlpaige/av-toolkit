@@ -285,3 +285,127 @@ def test_cable_cli_errors_and_example(tmp_path):
     bad.write_text("[1,2]")
     assert run("general/cable-schedule.py", bad).returncode == 2
     assert json.loads(run("general/cable-schedule.py", "--example").stdout)["rooms"]
+
+
+# ------------------------------------------------- second batch of tools
+
+to_import = load_script("dtools/drawing-to-import.py")
+ipsched = load_script("general/ip-schedule.py")
+report = load_script("general/commissioning-report.py")
+DEVICES = EXAMPLES / "vectorworks-devices.csv"
+
+
+def test_drawing_to_import_rolls_up_and_finds_the_delta():
+    drawn, bom = load_bom(DEVICES)[0], load_bom(REV_A)[0]
+    rows, skipped = to_import.build_import(drawn)
+    by_model = {(r["Model"], r["Location"]): r["Quantity"] for r in rows}
+    assert by_model[("SPA4-100", "Rack 1 - Courtroom 3A")] == 2
+    assert by_model[("DTP T HWP 4K 231D", "Courtroom 3A")] == 4 and skipped == []
+    assert sum(r["Quantity"] for r in rows) == 18
+
+    delta, _ = to_import.build_import(drawn, existing_items=bom)
+    assert [(r["Model"], r["Quantity"]) for r in delta] == [("PT30X-4K-G3", 1), ("MXA920W-S", 1)]
+    project_wide, _ = to_import.build_import(drawn, by_location=False, existing_items=bom, phase="Trim")
+    assert [(r["Model"], r["Location"], r["Phase"]) for r in project_wide] == [
+        ("PT30X-4K-G3", "", "Trim"), ("MXA920W-S", "", "Trim")]
+
+
+def test_drawing_to_import_cli_output_reloads_as_a_bom(tmp_path):
+    out = tmp_path / "import.csv"
+    done = run("dtools/drawing-to-import.py", DEVICES, "--out", out)
+    assert done.returncode == 0 and "18 unit(s)" in done.stderr
+    items, table = load_bom(out)
+    assert sum(i.quantity for i in items) == 18 and table.has("location")
+    tbd = tmp_path / "tbd.csv"
+    tbd.write_text("Make,Model\nAcme,TBD\nAcme,X1\n")
+    done = run("dtools/drawing-to-import.py", tbd)
+    assert "skipped row 2" in done.stderr and "Acme,X1" in done.stdout and "TBD" not in done.stdout
+
+
+def test_ip_schedule_build():
+    items = load_bom(REV_A)[0]
+    rows, left_out = ipsched.build_schedule(items, "192.168.10.0/24", start=10)
+    assert len(rows) == 13 and len({r["IP Address"] for r in rows}) == 13
+    assert rows[0]["IP Address"] == "192.168.10.10" and rows[0]["Gateway"] == "192.168.10.1"
+    assert {it.model for it in left_out} == {"AD-C6T", "DTP T HWP 4K 231 D", "BGR-4532", "TBD"}
+    ports = {r["Model"]: r["Port"] for r in rows}
+    assert (ports["Core 110f"], ports["SPA4-100"], ports["CP4N"], ports["MXA920W-S"]) == (1710, 80, 41794, 2202)
+    assert len({r["Name"] for r in rows}) == 13
+
+    more, _ = ipsched.build_schedule(items, "192.168.10.0/24", include=["*wallplate*"], exclude=["*display*"])
+    models = [r["Model"] for r in more]
+    assert models.count("DTP T HWP 4K 231 D") == 4 and "QM85C" not in models
+    # the gateway is never handed out, and a subnet that is too small says so
+    tight, _ = ipsched.build_schedule(items[:1], "10.0.0.0/29", start=1, gateway="10.0.0.1")
+    assert tight[0]["IP Address"] == "10.0.0.2"
+    with pytest.raises(ValueError, match="no addresses left"):
+        ipsched.build_schedule(items, "10.0.0.0/29", start=1)
+
+
+def test_ip_schedule_verify():
+    rows = [{"name": "Core", "ip": "192.168.1.10", "mask": "255.255.255.0", "gateway": "192.168.1.1", "port": "1710"},
+            {"name": "Panel", "ip": "192.168.1.10", "mask": "255.255.255.0", "gateway": "192.168.1.1", "port": ""},
+            {"name": "Amp", "ip": "192.168.1.255", "mask": "255.255.255.0", "gateway": "192.168.2.1"},
+            {"name": "Amp", "ip": "192.168.1.30"}, {"name": "Cam", "ip": "not-an-ip"}, {"name": "Spare", "ip": ""}]
+    found = {(lvl, name, msg) for lvl, name, msg in ipsched.verify_schedule(rows, offline=True)}
+    assert ("ERROR", "Core", "192.168.1.10 is assigned 2 times: Core, Panel") in found
+    assert ("ERROR", "Amp", "192.168.1.255 is the network or broadcast address of 192.168.1.0/24") in found
+    assert ("ERROR", "Amp", "gateway 192.168.2.1 is not in 192.168.1.0/24") in found
+    assert ("ERROR", "Cam", "'not-an-ip' is not a valid IPv4 address") in found
+    assert ("WARNING", "Amp", "name used 2 times (192.168.1.255, 192.168.1.30)") in found
+    assert ("WARNING", "Spare", "no IP address assigned") in found
+
+    probed = []
+    live = ipsched.verify_schedule(rows[:2], probe=lambda ip, port, t: probed.append((ip, port)) or port == 1710)
+    assert sorted(probed) == [("192.168.1.10", 80), ("192.168.1.10", 1710)]
+    assert ("ERROR", "Panel", "192.168.1.10 does not answer on port 80") in live
+
+
+def test_ip_schedule_cli_roundtrip_feeds_the_monitor(tmp_path):
+    out = tmp_path / "ips.csv"
+    assert run("general/ip-schedule.py", "build", REV_A, "--subnet", "10.9.8.0/24", "--out", out).returncode == 0
+    assert run("general/ip-schedule.py", "verify", out, "--offline").returncode == 0
+    monitor = load_script("general/device-monitor.py")
+    devices = monitor.load_devices(str(out))
+    assert len(devices) == 13 and devices[0].ip == "10.9.8.10" and devices[0].port == 41794
+    assert run("general/ip-schedule.py", "build", REV_A, "--subnet", "nonsense").returncode == 2
+
+
+def test_commissioning_report(tmp_path):
+    files = {
+        "tesira.json": [{"host": "10.0.0.5", "hostname": "DSP-3A", "serial": "0412", "version": "3.14",
+                         "healthy": False, "faults": ["Dante module not responding"], "errors": []}],
+        "crestron.json": [{"host": "10.0.0.6", "reachable": True, "firmware": "CP4N v2.8", "issues": [],
+                           "ip_table": [{"ip_id": "03", "type": "Gway", "status": "ONLINE",
+                                         "address": "10.0.0.20", "model": "TSW-1070"}]}],
+        "extron.json": [{"ip": "10.0.0.7", "port": 23, "model": "IN1608", "firmware": "1.07",
+                         "part_number": "60-1238-01", "name": "SW|1", "locked": True}],
+        "uptime.json": [{"name": "Core", "ip": "10.0.0.8", "port": 1710, "online": True, "failures": 0}],
+        "core.json": {"host": "10.0.0.8", "design": "Courtroom", "platform": "Core 110f", "state": "Active",
+                      "status": "OK", "status_code": 0, "captured": "2026-01-01",
+                      "components": {"PA": {"type": "gain", "controls": {"mute": {"value": 1}, "gain": {"value": 0}}}}},
+        "dsp-snap.json": {"host": "10.0.0.5", "hostname": "DSP-3A", "blocks": {"Level1": {"mute[1]": True}}},
+        "mystery.json": {"hello": "world"},
+        "broken.json": None,
+    }
+    for name, data in files.items():
+        (tmp_path / name).write_text("{not json" if data is None else json.dumps(data))
+    (tmp_path / "bom.json").write_text(run("dtools/bom-audit.py", REV_A, "--json").stdout)
+
+    md, failed, built = report.build_report(sorted(tmp_path.glob("*.json")), "Courtroom 3A", "S. Paige")
+    assert failed and built == 7
+    assert "# Commissioning Report — Courtroom 3A" in md and "by S. Paige" in md
+    assert "**Result: FAIL — 2 check(s) need attention**" in md       # Tesira fault + BOM below-cost line
+    assert "| ❌ | Biamp Tesira status | 0/1 healthy | `tesira.json` |" in md
+    assert "| ✅ | Crestron IP tables | 1 processor(s), 1 entries, 0 issue(s) | `crestron.json` |" in md
+    assert "Dante module not responding" in md and "SW\\|1" in md and "password set" in md
+    assert "- PA : mute" in md and "- Level1 mute[1]" in md
+    assert "priced below cost" in md
+    assert "`mystery.json` — not a format this report recognises" in md
+    assert "`broken.json` — could not be read" in md
+
+    done = run("general/commissioning-report.py", tmp_path, "--out", tmp_path / "r.md")
+    assert done.returncode == 1 and (tmp_path / "r.md").read_text(encoding="utf-8") .startswith("# Commissioning")
+    only_ok = run("general/commissioning-report.py", tmp_path / "uptime.json", tmp_path / "crestron.json")
+    assert only_ok.returncode == 0 and "**Result: PASS**" in only_ok.stdout
+    assert run("general/commissioning-report.py", tmp_path / "mystery.json").returncode == 2

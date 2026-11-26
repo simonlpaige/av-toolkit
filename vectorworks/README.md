@@ -35,6 +35,15 @@ quantity mismatches. ConnectCAD's `Make` is read as manufacturer and
 `Layer` / `Room` as location; use `--drawing-map location="..."` if your
 rooms live in another field.
 
+**Send what's new on the drawing to D-Tools**
+
+```bash
+python dtools/drawing-to-import.py "Courthouse - Device.csv" --only-missing-from dtools-bom.xlsx --out import.csv
+```
+
+Writes one line per part per location with quantities, containing only
+what the drawing has beyond the current BOM, for the D-Tools SI import.
+
 **Turn a ConnectCAD cable report into a pull schedule**
 
 ```bash

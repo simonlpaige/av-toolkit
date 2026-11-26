@@ -8,6 +8,8 @@ the SI database or the project file.
 | `bom-audit.py` | Is this BOM safe to send? (below-cost lines, $0 items, thin margin, TBDs, inconsistent pricing) |
 | `bom-diff.py` | What changed between revision A and B, and what is it worth? |
 | `rack-loads.py` | How many circuits, how much heat, how many RU, how much weight per rack? |
+| `drawing-to-import.py` | What does the Vectorworks drawing have that still needs adding to D-Tools? (writes an import CSV) |
+| `../general/ip-schedule.py` | Build an IP schedule from the BOM's networked devices, then verify it |
 | `../general/bom-reconcile.py` | Does the BOM match the Vectorworks drawing? |
 | `../general/cable-schedule.py` | Turn a wire export into a pull schedule, label sheet and bulk takeoff |
 
@@ -50,4 +52,6 @@ Fields you can map: `manufacturer`, `model`, `description`, `category`,
 python dtools/bom-audit.py examples/dtools-bom-rev-a.csv --group-by location
 python dtools/bom-diff.py examples/dtools-bom-rev-a.csv examples/dtools-bom-rev-b.csv
 python dtools/rack-loads.py examples/dtools-bom-rev-a.csv --only rack --rack-ru 44
+python dtools/drawing-to-import.py examples/vectorworks-devices.csv --only-missing-from examples/dtools-bom-rev-a.csv
+python general/ip-schedule.py build examples/dtools-bom-rev-a.csv --subnet 192.168.10.0/24
 ```

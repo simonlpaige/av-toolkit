@@ -19,6 +19,8 @@ university theaters, and corporate AV deployments.
 | `dtools/bom-diff.py` | Compare two BOM revisions. Added, removed, re-quantified and re-priced parts with the dollar impact — the raw material for a change order. |
 | `dtools/rack-loads.py` | Watts, amps, BTU/hr, rack units and weight per rack from the BOM. Circuit count at 80% loading; flags racks that overflow. |
 | `general/bom-reconcile.py` | D-Tools BOM vs Vectorworks equipment list. Finds gear that is drawn but not priced, priced but not drawn, or counted differently. |
+| `dtools/drawing-to-import.py` | Vectorworks equipment list → D-Tools import CSV, rolled up per part per location. `--only-missing-from` writes just what the drawing has beyond the current BOM. |
+| `general/ip-schedule.py` | `build` an IP schedule from the BOM's networked devices; `verify` it for duplicate addresses, subnet mistakes and devices that don't answer. |
 | `vectorworks/vw-export-records.py` | Runs inside Vectorworks. Exports record / plug-in object data (ConnectCAD devices, equipment records) to CSV. |
 | `general/cable-schedule.py` | Cable pull schedules from JSON, a ConnectCAD cable report or a D-Tools wire export. Schedule, label sheet, bulk takeoff with slack and spool counts, and a `--check` for duplicate IDs, dangling ends and over-length runs. |
 
@@ -57,6 +59,7 @@ unusual. See [`dtools/README.md`](dtools/README.md) and
 | Script | What it does |
 |--------|-------------|
 | `general/av-net-scanner.cpp` | Fast multi-threaded TCP connect scanner for AV ports. Groups results per host and identifies Extron, Biamp and Crestron units from their banners. |
+| `general/commissioning-report.py` | Assembles the JSON output of every other tool into one Markdown handoff report with a pass/fail summary. |
 | `general/device-monitor.py` | Lightweight uptime monitoring with webhook alerts and a CSV log. Device list from JSON, CSV or Excel. |
 
 ## Quick Start
@@ -70,6 +73,13 @@ python dtools/bom-diff.py rev-A.xlsx rev-B.xlsx --format markdown
 
 # Does the Vectorworks drawing match the D-Tools BOM?
 python general/bom-reconcile.py project-bom.xlsx vectorworks-devices.csv --by-location
+
+# Add what the drawing has that the BOM doesn't to D-Tools
+python dtools/drawing-to-import.py vectorworks-devices.csv --only-missing-from project-bom.xlsx --out import.csv
+
+# IP schedule from the BOM, then check it on site
+python general/ip-schedule.py build project-bom.xlsx --subnet 192.168.10.0/24 --out ip-schedule.csv
+python general/ip-schedule.py verify ip-schedule.csv
 
 # Power, heat and rack space per rack
 python dtools/rack-loads.py project-bom.xlsx --only rack --rack-ru 44
@@ -95,8 +105,11 @@ python crestron/iptable-checker.py 192.168.1.10 --expect-subnet 192.168.1.0/24
 g++ -std=c++17 -O2 -pthread general/av-net-scanner.cpp -o av-net-scanner   # add -lws2_32 on Windows
 ./av-net-scanner 10.0.1.0/24
 
-# Monitor uptime on all room devices
-python general/device-monitor.py devices.json --interval 60
+# Monitor uptime on all room devices (the IP schedule works as the device list)
+python general/device-monitor.py ip-schedule.csv --interval 60
+
+# Roll every tool's --json output into one handoff report
+python general/commissioning-report.py results/ --project "Courtroom 3A" --out report.md
 ```
 
 Sample files to try everything against are in [`examples/`](examples/).

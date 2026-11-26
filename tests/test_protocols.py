@@ -478,3 +478,29 @@ def test_monitor_load_and_check(serve, tmp_path):
         j.write_text(bad)
         with pytest.raises(ValueError):
             monitor.load_devices(str(j))
+
+
+# ------------------------------------------- report recognises real output
+
+def test_report_classifies_what_each_tool_actually_emits(serve):
+    from dataclasses import asdict
+    report = load_script("general/commissioning-report.py")
+
+    t = tstatus.poll_device("127.0.0.1", serve(fake_tesira()), 1.0)
+    outputs = {
+        "tesira_status": [{**asdict(t), "healthy": t.healthy}],
+        "crestron_iptable": [iptable.check_processor("127.0.0.1", serve(fake_crestron()), 1.0, ping=None)],
+        "extron_scan": [asdict(scanner.probe_host("127.0.0.1", serve(fake_extron()), 1.0))],
+        "extron_backup": [backup.collect_device_config("127.0.0.1", serve(fake_extron()), 0.6)],
+        "monitor_status": [monitor.Device("Core", "10.0.0.1", 1710).as_dict()],
+        "qsys_snapshot": qrc.take_snapshot("127.0.0.1", serve(fake_core({"PA": _gain(0.0, True, -20.0)})), 1.0),
+        "tesira_snapshot": tdiff.get_device_snapshot("127.0.0.1", serve(fake_tesira()), 1.0),
+    }
+    for expected, data in outputs.items():
+        data = json.loads(json.dumps(data))                 # exactly what lands in the file
+        builder = report.classify(data)
+        assert builder is not None and builder.__name__ == expected, expected
+        title, status, summary, lines = builder(data)
+        assert title and summary and lines
+    assert report.qsys_snapshot(outputs["qsys_snapshot"])[2].endswith("1 muted")
+    assert report.tesira_snapshot(outputs["tesira_snapshot"])[2] == "2 blocks, 1 muted"
