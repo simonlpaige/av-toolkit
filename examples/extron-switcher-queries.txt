@@ -1,0 +1,11 @@
+# Extra read-only queries for extron/config-backup.py --queries
+# Typical for IN-series / MPS / SW switchers. CHECK EACH ONE against the
+# product's user guide first: a number in front turns most of these into
+# a set command ("1Z" mutes audio, "1B" blanks video).
+#
+# name = command        (\e = Escape, \r = Return)
+current_input = !
+volume        = V
+audio_mute    = Z
+video_mute    = B
+front_panel_lock = X

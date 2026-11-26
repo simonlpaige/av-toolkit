@@ -1,0 +1,186 @@
+--[[
+signal-tracer.qplug — Find where a signal chain is blocked.
+
+"The lectern mic doesn't come out of the ceiling speakers." You describe
+the chain once, as a list of named components in signal order, and this
+walks it and tells you the first stage that stops the audio:
+
+    Lectern Mic: Lectern Gain > AEC 1 > Room Mixer > Zone 1 Level > Amp A
+
+For each stage it reports any control that is muted, any gain at or
+below the floor, any block left bypassed is noted, and any device whose
+status is not OK. A component name that doesn't exist is flagged too —
+that is usually a renamed block.
+
+Scripts cannot read schematic wiring, so the chain is what you tell it.
+This checks control state along that chain, not the wires or mixer
+crosspoints between the stages.
+
+Install:
+  Copy to  Documents/QSC/Q-Sys Designer/Plugins/  and restart Designer.
+  Drag "AV Toolkit > Signal Path Tracer" into the schematic.
+
+Chains box: one chain per line (or separated by ";"):
+    <label>: <component> > <component> > <component>
+Component names are the Code Names from the Properties pane, with
+Script Access enabled. Press Trace.
+
+Simon L. Paige — AV Toolkit
+License: MIT
+--]]
+
+PluginInfo = {
+  Name = "AV Toolkit~Signal Path Tracer",
+  Version = "2.0.0",
+  Id = "com.simonpaige.av-toolkit.signal-tracer",
+  Description = "Walks user-defined signal chains and reports the first muted, floored or faulted stage.",
+  Author = "Simon L. Paige",
+  ShowDebug = true
+}
+
+function GetColor(props)
+  return { 102, 153, 204 }
+end
+
+function GetPrettyName(props)
+  return "Signal Path Tracer " .. PluginInfo.Version
+end
+
+function GetProperties()
+  return {
+    { Name = "Gain Floor (dB)", Type = "integer", Min = -100, Max = 0, Value = -60 },
+  }
+end
+
+function GetControls(props)
+  return {
+    { Name = "Trace",    ControlType = "Button",    ButtonType = "Trigger", UserPin = true, PinStyle = "Input" },
+    { Name = "Chains",   ControlType = "Text",                              UserPin = true, PinStyle = "Both" },
+    { Name = "AllClear", ControlType = "Indicator", IndicatorType = "Led",  UserPin = true, PinStyle = "Output" },
+    { Name = "Report",   ControlType = "Indicator", IndicatorType = "Text", UserPin = true, PinStyle = "Output" },
+  }
+end
+
+function GetControlLayout(props)
+  local layout = {}
+  local graphics = {
+    { Type = "Label", Text = "Chains    label: Comp A > Comp B > Comp C    (one per line)",
+      Position = { 10, 40 }, Size = { 400, 16 }, FontSize = 10, HTextAlign = "Left" },
+    { Type = "Label", Text = "All clear", Position = { 100, 12 }, Size = { 60, 16 }, FontSize = 10, HTextAlign = "Right" },
+  }
+  layout["Trace"]    = { PrettyName = "Trace",     Style = "Button", Legend = "Trace", Position = { 10, 10 }, Size = { 80, 24 } }
+  layout["AllClear"] = { PrettyName = "All Clear", Style = "Led",    Color = { 0, 220, 0 }, Position = { 165, 12 }, Size = { 20, 20 } }
+  layout["Chains"]   = { PrettyName = "Chains",    Style = "Text",   Position = { 10, 56 },  Size = { 400, 110 },
+                         HTextAlign = "Left", VTextAlign = "Top", WordWrap = true }
+  layout["Report"]   = { PrettyName = "Report",    Style = "Text",   Position = { 10, 172 }, Size = { 400, 280 },
+                         HTextAlign = "Left", VTextAlign = "Top", WordWrap = true }
+  return layout, graphics
+end
+
+--------------------------------------------------------------------------
+-- Runtime
+--------------------------------------------------------------------------
+if Controls then
+
+  local gainFloor = Properties["Gain Floor (dB)"].Value
+
+  local function trim(s)
+    return (s:gsub("^%s+", ""):gsub("%s+$", ""))
+  end
+
+  local function isNamed(controlName, suffix)
+    local n = string.lower(controlName)
+    return n == suffix or n:sub(-(#suffix + 1)) == "." .. suffix
+  end
+
+  -- "Label: A > B > C" -> { label = "Label", stages = { "A", "B", "C" } }
+  local function parseChains(text)
+    local chains = {}
+    for line in string.gmatch(text or "", "[^\n;]+") do
+      line = trim(line)
+      if line ~= "" then
+        local label, path = line:match("^(.-):%s*(.+)$")
+        if not path then label, path = "Chain " .. (#chains + 1), line end
+        local stages = {}
+        for stage in string.gmatch(path, "[^>]+") do
+          stage = trim(stage)
+          if stage ~= "" then table.insert(stages, stage) end
+        end
+        if #stages > 0 then table.insert(chains, { label = trim(label), stages = stages }) end
+      end
+    end
+    return chains
+  end
+
+  -- Returns blocking reasons, notes, and whether the component exists.
+  local function inspect(name, existing)
+    if not existing[name] then return {}, {}, false end
+    local blocks, notes = {}, {}
+    local ok, controls = pcall(Component.GetControls, name)
+    if not ok or not controls then return {}, {}, false end
+    for _, ctl in ipairs(controls) do
+      local cname = ctl.Name or ""
+      if isNamed(cname, "mute") and ctl.Value == 1 then
+        table.insert(blocks, cname .. " is MUTED")
+      elseif isNamed(cname, "gain") and type(ctl.Value) == "number" and ctl.Value <= gainFloor then
+        table.insert(blocks, string.format("%s at %.1f dB", cname, ctl.Value))
+      elseif isNamed(cname, "bypass") and ctl.Value == 1 then
+        table.insert(notes, cname .. " is bypassed")
+      elseif string.lower(cname) == "status" and type(ctl.Value) == "number" and ctl.Value ~= 0 then
+        table.insert(blocks, "status: " .. tostring(ctl.String))
+      end
+    end
+    return blocks, notes, true
+  end
+
+  local function RunTrace()
+    local chains = parseChains(Controls.Chains.String)
+    if #chains == 0 then
+      Controls.Report.String = "No chains defined.\nExample:\n  Lectern Mic: Lectern Gain > AEC 1 > Room Mixer > Amp A"
+      Controls.AllClear.Boolean = false
+      return
+    end
+
+    local existing = {}
+    for _, comp in ipairs(Component.GetComponents()) do
+      if comp.Name then existing[comp.Name] = true end
+    end
+
+    local lines, problems = {}, 0
+    for _, chain in ipairs(chains) do
+      local firstBlock = nil
+      local detail = {}
+      for i, stage in ipairs(chain.stages) do
+        local blocks, notes, found = inspect(stage, existing)
+        if not found then
+          table.insert(detail, string.format("   %d. %s  - NOT FOUND (name or Script Access?)", i, stage))
+          firstBlock = firstBlock or stage
+        elseif #blocks > 0 then
+          table.insert(detail, string.format("   %d. %s  - BLOCKED: %s", i, stage, table.concat(blocks, ", ")))
+          firstBlock = firstBlock or stage
+        elseif #notes > 0 then
+          table.insert(detail, string.format("   %d. %s  - ok (%s)", i, stage, table.concat(notes, ", ")))
+        else
+          table.insert(detail, string.format("   %d. %s  - ok", i, stage))
+        end
+      end
+      if firstBlock then
+        problems = problems + 1
+        table.insert(lines, "FAIL  " .. chain.label .. "  - stops at: " .. firstBlock)
+      else
+        table.insert(lines, "OK    " .. chain.label)
+      end
+      for _, d in ipairs(detail) do table.insert(lines, d) end
+      table.insert(lines, "")
+    end
+
+    table.insert(lines, 1, string.format("%d chain(s), %d blocked\n", #chains, problems))
+    local report = table.concat(lines, "\n")
+    Controls.Report.String = report
+    Controls.AllClear.Boolean = (problems == 0)
+    print(report)
+  end
+
+  Controls.Trace.EventHandler = RunTrace
+
+end

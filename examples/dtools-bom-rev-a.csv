@@ -1,0 +1,17 @@
+Project: Example Courthouse AV — Revision A
+Exported from D-Tools SI
+
+Manufacturer,Model,Description,Category,Phase,Location,System,Qty,Unit Cost,Unit Price,Labor Hours,Watts,BTU,Rack Units,Weight
+QSC,Core 110f,Q-SYS Core processor,DSP,Trim,Rack 1 - Courtroom 3A,Audio,1,"$2,450.00","$3,500.00",4,90,,1,7
+QSC,SPA4-100,4-channel amplifier,Amplifiers,Trim,Rack 1 - Courtroom 3A,Audio,2,$980.00,"$1,400.00",1.5,500,,1,8.5
+QSC,AD-C6T,6.5in ceiling speaker,Speakers,Rough-In,Courtroom 3A,Audio,12,$140.00,$215.00,1,,,,7
+Extron,DTP CrossPoint 84 4K,8x4 matrix switcher,Video,Trim,Rack 1 - Courtroom 3A,Video,1,"$6,200.00","$8,900.00",6,250,,2,13
+Extron,DTP T HWP 4K 231 D,Wallplate transmitter,Video,Trim,Courtroom 3A,Video,4,$520.00,$745.00,1,,,,1
+Shure,MXA920W-S,Ceiling array microphone,Microphones,Trim,Courtroom 3A,Audio,2,"$3,100.00","$4,250.00",2.5,,,,12
+Crestron,CP4N,Control processor,Control,Trim,Rack 1 - Courtroom 3A,Control,1,"$1,900.00","$2,700.00",8,25,,1,3
+Crestron,TSW-1070-B-S,10in touch screen,Control,Finish,Courtroom 3A,Control,2,"$1,450.00","$1,400.00",1.5,,,,3
+Middle Atlantic,BGR-4532,45RU rack,Racks,Rough-In,Rack 1 - Courtroom 3A,Infrastructure,1,"$1,150.00","$1,600.00",3,,,,180
+Netgear,M4250-26G4F-PoE+,AV-line PoE+ switch,Network,Trim,Rack 1 - Courtroom 3A,Network,1,"$1,300.00","$1,480.00",2,480,,1,10
+Samsung,QM85C,85in display,Displays,Finish,Courtroom 3A,Video,2,"$2,900.00","$3,950.00",3,,,,95
+Q-SYS,Core 110f,Q-SYS Core processor,DSP,Trim,Rack 2 - Courtroom 3B,Audio,1,"$2,450.00","$3,650.00",4,90,,1,7
+Liberty,TBD,Bulk cable allowance,Cable,Rough-In,,Infrastructure,1,$0.00,"$2,500.00",0,,,,

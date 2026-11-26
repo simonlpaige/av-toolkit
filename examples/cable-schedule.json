@@ -1,0 +1,54 @@
+{
+  "project": "Example AV Project",
+  "notes": [
+    "All category cable plenum-rated",
+    "Leave 10 ft service loop at rack"
+  ],
+  "rooms": [
+    {
+      "name": "Conference Room A",
+      "cables": [
+        {
+          "id": "C-A-001",
+          "type": "CAT6 STP",
+          "from": "Rack Switch",
+          "to": "Table Box Left",
+          "connector": "RJ45",
+          "length_m": 15,
+          "path": "floor box → overhead",
+          "notes": "PoE"
+        },
+        {
+          "id": "C-A-002",
+          "type": "HDMI Fiber",
+          "from": "Rack Matrix",
+          "to": "Wall Display",
+          "connector": "HDMI",
+          "length_m": 20,
+          "path": "wall conduit",
+          "notes": "Active optical"
+        },
+        {
+          "id": "C-A-003",
+          "type": "XLR Balanced",
+          "from": "Ceiling Mic Array",
+          "to": "Rack DSP",
+          "connector": "XLR-M/F",
+          "length_m": 12,
+          "path": "overhead tray",
+          "notes": "Shielded pair"
+        },
+        {
+          "id": "C-A-004",
+          "type": "Speaker 2C",
+          "from": "Rack Amp",
+          "to": "Ceiling Speaker L",
+          "connector": "Euroblock",
+          "length_m": 10,
+          "path": "overhead tray",
+          "notes": "14 AWG"
+        }
+      ]
+    }
+  ]
+}

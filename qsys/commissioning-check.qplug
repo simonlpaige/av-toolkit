@@ -1,0 +1,178 @@
+--[[
+commissioning-check.qplug — Validate a running Q-SYS design before handoff.
+
+Scans every named component in the design and reports:
+
+  1. Anything left muted            (controls named "mute" / "*.mute")
+  2. Gains at extreme values        (controls named "gain" / "*.gain")
+  3. Blocks left bypassed           (controls named "bypass")
+  4. Devices reporting a fault      ("status" controls that are not OK)
+
+Install:
+  Copy this file to  Documents/QSC/Q-Sys Designer/Plugins/  and restart
+  Designer. Drag "AV Toolkit > Commissioning Check" into the schematic,
+  run or emulate, press Check.
+
+What it can see:
+  Only components with a Code Name and Script Access enabled (Properties
+  pane) are visible to scripts. Give every block you care about a name;
+  anything unnamed is skipped, and the summary line says how many
+  components were scanned so a suspiciously low number is obvious.
+
+  Intentional mutes (a spare output, a privacy mute) will be listed —
+  put their component names in the Ignore box, comma-separated. A plain
+  substring match is used, so "Spare" ignores "Spare Out 1" and "Spare Out 2".
+
+Simon L. Paige — AV Toolkit
+License: MIT
+--]]
+
+PluginInfo = {
+  Name = "AV Toolkit~Commissioning Check",
+  Version = "2.0.0",
+  Id = "com.simonpaige.av-toolkit.commissioning-check",
+  Description = "Scans named components for mutes, extreme gain, bypassed blocks and device faults.",
+  Author = "Simon L. Paige",
+  ShowDebug = true
+}
+
+function GetColor(props)
+  return { 102, 153, 204 }
+end
+
+function GetPrettyName(props)
+  return "Commissioning Check " .. PluginInfo.Version
+end
+
+function GetProperties()
+  return {
+    { Name = "Gain Low Limit (dB)",  Type = "integer", Min = -100, Max = 0,  Value = -40 },
+    { Name = "Gain High Limit (dB)", Type = "integer", Min = 0,    Max = 40, Value = 12 },
+  }
+end
+
+function GetControls(props)
+  return {
+    { Name = "Check",      ControlType = "Button",    ButtonType = "Trigger",   UserPin = true, PinStyle = "Input" },
+    { Name = "Ignore",     ControlType = "Text",                                UserPin = true, PinStyle = "Both" },
+    { Name = "Pass",       ControlType = "Indicator", IndicatorType = "Led",    UserPin = true, PinStyle = "Output" },
+    { Name = "IssueCount", ControlType = "Indicator", IndicatorType = "Text",   UserPin = true, PinStyle = "Output" },
+    { Name = "Summary",    ControlType = "Indicator", IndicatorType = "Text",   UserPin = true, PinStyle = "Output" },
+    { Name = "Status",     ControlType = "Indicator", IndicatorType = "Text",   UserPin = true, PinStyle = "Output" },
+  }
+end
+
+function GetControlLayout(props)
+  local layout = {}
+  local graphics = {
+    { Type = "Label", Text = "Ignore (names, comma-separated)", Position = { 10, 44 }, Size = { 200, 16 },
+      FontSize = 10, HTextAlign = "Left" },
+    { Type = "Label", Text = "Issues", Position = { 220, 12 }, Size = { 50, 16 }, FontSize = 10, HTextAlign = "Right" },
+  }
+  layout["Check"]      = { PrettyName = "Check",       Style = "Button", Legend = "Check", Position = { 10, 10 },  Size = { 80, 24 } }
+  layout["Pass"]       = { PrettyName = "Pass",        Style = "Led",    Color = { 0, 220, 0 }, Position = { 100, 12 }, Size = { 20, 20 } }
+  layout["IssueCount"] = { PrettyName = "Issue Count", Style = "Text",   Position = { 275, 10 },  Size = { 45, 20 } }
+  layout["Ignore"]     = { PrettyName = "Ignore",      Style = "Text",   Position = { 10, 60 },   Size = { 400, 20 } }
+  layout["Summary"]    = { PrettyName = "Summary",     Style = "Text",   Position = { 10, 86 },   Size = { 400, 20 } }
+  layout["Status"]     = { PrettyName = "Status",      Style = "Text",   Position = { 10, 112 },  Size = { 400, 260 },
+                           HTextAlign = "Left", VTextAlign = "Top", WordWrap = true }
+  return layout, graphics
+end
+
+--------------------------------------------------------------------------
+-- Runtime
+--------------------------------------------------------------------------
+if Controls then
+
+  local gainLow  = Properties["Gain Low Limit (dB)"].Value
+  local gainHigh = Properties["Gain High Limit (dB)"].Value
+
+  -- "mute" or "input.3.mute" -> true for suffix "mute"
+  local function isNamed(controlName, suffix)
+    local n = string.lower(controlName)
+    return n == suffix or n:sub(-(#suffix + 1)) == "." .. suffix
+  end
+
+  local function ignoreList()
+    local list = {}
+    for word in string.gmatch(Controls.Ignore.String or "", "[^,;\n]+") do
+      word = word:match("^%s*(.-)%s*$")
+      if word ~= "" then table.insert(list, string.lower(word)) end
+    end
+    return list
+  end
+
+  local function isIgnored(name, list)
+    local lower = string.lower(name)
+    for _, word in ipairs(list) do
+      if lower:find(word, 1, true) then return true end
+    end
+    return false
+  end
+
+  local function RunCheck()
+    local issues = {}
+    local counts = { mute = 0, gain = 0, bypass = 0, fault = 0 }
+    local scanned, skipped = 0, 0
+    local ignored = ignoreList()
+
+    for _, comp in ipairs(Component.GetComponents()) do
+      local name = comp.Name or ""
+      if name ~= "" and isIgnored(name, ignored) then
+        skipped = skipped + 1
+      elseif name ~= "" then
+        local ok, controls = pcall(Component.GetControls, name)
+        if ok and controls then
+          scanned = scanned + 1
+          for _, ctl in ipairs(controls) do
+            local cname = ctl.Name or ""
+            local where = name .. " : " .. cname
+            if isNamed(cname, "mute") and ctl.Value == 1 then
+              counts.mute = counts.mute + 1
+              table.insert(issues, "MUTED      " .. where)
+            elseif isNamed(cname, "gain") and type(ctl.Value) == "number" then
+              if ctl.Value <= gainLow then
+                counts.gain = counts.gain + 1
+                table.insert(issues, string.format("GAIN LOW   %s = %.1f dB", where, ctl.Value))
+              elseif ctl.Value >= gainHigh then
+                counts.gain = counts.gain + 1
+                table.insert(issues, string.format("GAIN HIGH  %s = %.1f dB", where, ctl.Value))
+              end
+            elseif isNamed(cname, "bypass") and ctl.Value == 1 then
+              counts.bypass = counts.bypass + 1
+              table.insert(issues, "BYPASSED   " .. where)
+            elseif string.lower(cname) == "status" and type(ctl.Value) == "number" and ctl.Value ~= 0 then
+              counts.fault = counts.fault + 1
+              table.insert(issues, "FAULT      " .. name .. " : " .. tostring(ctl.String))
+            end
+          end
+        end
+      end
+    end
+
+    table.sort(issues)
+    local text
+    if scanned == 0 then
+      text = "Nothing to scan. No named components are visible to scripts.\n" ..
+             "Give blocks a Code Name and set Script Access to Script or All."
+    elseif #issues == 0 then
+      text = "PASS - no commissioning issues found."
+    else
+      text = "FAIL - " .. #issues .. " issue(s):\n" .. table.concat(issues, "\n")
+    end
+
+    Controls.Status.String = text
+    Controls.IssueCount.String = tostring(#issues)
+    Controls.Pass.Boolean = (scanned > 0 and #issues == 0)
+    Controls.Summary.String = string.format(
+      "%d components scanned, %d ignored | mutes %d, gain %d, bypass %d, faults %d",
+      scanned, skipped, counts.mute, counts.gain, counts.bypass, counts.fault)
+    print(text)
+  end
+
+  Controls.Check.EventHandler = RunCheck
+
+  -- Give the design a moment to finish loading before the first scan.
+  Timer.CallAfter(RunCheck, 3)
+
+end
