@@ -8,6 +8,8 @@ the SI database or the project file.
 | `bom-audit.py` | Is this BOM safe to send? (below-cost lines, $0 items, thin margin, TBDs, inconsistent pricing) |
 | `bom-diff.py` | What changed between revision A and B, and what is it worth? |
 | `rack-loads.py` | How many circuits, how much heat, how many RU, how much weight per rack? |
+| `companion-check.py` | Did we forget the mounts, the screen, the rack power? |
+| `rack-elevation.py` | What does a first-pass rack layout look like, and does it fit? |
 | `drawing-to-import.py` | What does the Vectorworks drawing have that still needs adding to D-Tools? (writes an import CSV) |
 | `../general/ip-schedule.py` | Build an IP schedule from the BOM's networked devices, then verify it |
 | `../general/bom-reconcile.py` | Does the BOM match the Vectorworks drawing? |
@@ -25,7 +27,8 @@ these columns you want checked:
 | Pricing checks | Unit Cost, Unit Price (or the extended versions) |
 | Grouping | Location, System, Phase, Category |
 | Labor check | Labor Hours |
-| `rack-loads.py` | Watts and/or Amps, BTU, Rack Units, Weight |
+| `rack-loads.py`, `rack-elevation.py` | Watts and/or Amps, BTU, Rack Units, Weight |
+| `companion-check.py` | Category and/or Description |
 
 Grouped reports work too: title rows above the header and subtotal rows
 are skipped.

@@ -19,6 +19,8 @@ university theaters, and corporate AV deployments.
 | `dtools/bom-diff.py` | Compare two BOM revisions. Added, removed, re-quantified and re-priced parts with the dollar impact — the raw material for a change order. |
 | `dtools/rack-loads.py` | Watts, amps, BTU/hr, rack units and weight per rack from the BOM. Circuit count at 80% loading; flags racks that overflow. |
 | `general/bom-reconcile.py` | D-Tools BOM vs Vectorworks equipment list. Finds gear that is drawn but not priced, priced but not drawn, or counted differently. |
+| `dtools/companion-check.py` | Finds the accessory the BOM forgot: displays with no mounts, projectors with no screen, racks with no power distribution. Rules are editable. |
+| `dtools/rack-elevation.py` | First-pass rack elevation from the BOM: U-numbered layout per rack, heaviest at the bottom, optional vent spacing, overflow check. |
 | `dtools/drawing-to-import.py` | Vectorworks equipment list → D-Tools import CSV, rolled up per part per location. `--only-missing-from` writes just what the drawing has beyond the current BOM. |
 | `general/ip-schedule.py` | `build` an IP schedule from the BOM's networked devices; `verify` it for duplicate addresses, subnet mistakes and devices that don't answer. |
 | `vectorworks/vw-export-records.py` | Runs inside Vectorworks. Exports record / plug-in object data (ConnectCAD devices, equipment records) to CSV. |
@@ -59,6 +61,7 @@ unusual. See [`dtools/README.md`](dtools/README.md) and
 | Script | What it does |
 |--------|-------------|
 | `general/av-net-scanner.cpp` | Fast multi-threaded TCP connect scanner for AV ports. Groups results per host and identifies Extron, Biamp and Crestron units from their banners. |
+| `general/mdns-discover.py` | Finds Dante devices (and NDI, AirPlay, Chromecast with `--all`) by mDNS — the gear a TCP port scan cannot see. |
 | `general/commissioning-report.py` | Assembles the JSON output of every other tool into one Markdown handoff report with a pass/fail summary. |
 | `general/device-monitor.py` | Lightweight uptime monitoring with webhook alerts and a CSV log. Device list from JSON, CSV or Excel. |
 
@@ -80,6 +83,12 @@ python dtools/drawing-to-import.py vectorworks-devices.csv --only-missing-from p
 # IP schedule from the BOM, then check it on site
 python general/ip-schedule.py build project-bom.xlsx --subnet 192.168.10.0/24 --out ip-schedule.csv
 python general/ip-schedule.py verify ip-schedule.csv
+
+# Did the BOM forget the mounts, the screen or the rack power?
+python dtools/companion-check.py project-bom.xlsx
+
+# First-pass rack elevation
+python dtools/rack-elevation.py project-bom.xlsx --only rack --vent-every 4
 
 # Power, heat and rack space per rack
 python dtools/rack-loads.py project-bom.xlsx --only rack --rack-ru 44
@@ -104,6 +113,9 @@ python crestron/iptable-checker.py 192.168.1.10 --expect-subnet 192.168.1.0/24
 # Scan a whole building for AV gear
 g++ -std=c++17 -O2 -pthread general/av-net-scanner.cpp -o av-net-scanner   # add -lws2_32 on Windows
 ./av-net-scanner 10.0.1.0/24
+
+# Find Dante devices (use --interface on a laptop with several adapters)
+python general/mdns-discover.py --interface 192.168.1.50
 
 # Monitor uptime on all room devices (the IP schedule works as the device list)
 python general/device-monitor.py ip-schedule.csv --interval 60
@@ -138,7 +150,8 @@ python -m pytest tests
 
 The protocol scripts are tested against simulated devices on localhost
 that speak each protocol as documented (SIS banner and password prompt,
-Tesira Telnet negotiation and TTP, Crestron console, QRC JSON-RPC).
+Tesira Telnet negotiation and TTP, Crestron console, QRC JSON-RPC,
+mDNS responses).
 
 ## Contributing
 

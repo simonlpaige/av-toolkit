@@ -21,7 +21,8 @@ Usage:
 
 Recognised automatically, by content: Extron scans and config backups,
 Tesira status, Biamp and Q-SYS snapshots, Crestron IP table checks,
-device-monitor status and BOM audits. Anything else is listed as
+device-monitor status, mDNS/Dante discovery, BOM audits and companion
+checks. Anything else is listed as
 unrecognised rather than dropped.
 
 Exit code: 0 everything passed, 1 something failed, 2 nothing readable.
@@ -116,6 +117,22 @@ def bom_audit(data):
             f"{counts.get('ERROR', 0)} error(s), {counts.get('WARNING', 0)} warning(s)", lines)
 
 
+def companion_check(data):
+    findings = data.get("findings", [])
+    missing = [f for f in findings if f["level"] == "ERROR"]
+    lines = _table(["Level", "Rule", "Location", "Finding"],
+                   [[f["level"], f["rule"], f["location"], f["message"]] for f in findings]) if findings else []
+    return ("BOM companion items", FAIL if missing else PASS,
+            f"{len(missing)} missing, {len(findings) - len(missing)} note(s)", lines or ["Nothing missing."])
+
+
+def dante_devices(data):
+    rows = [[d["name"], ", ".join(d.get("addresses", [])), d.get("txt", {}).get("mf"),
+             d.get("txt", {}).get("model"), d.get("channels") or ""] for d in data]
+    return ("Dante / mDNS devices found", INFO, f"{len(data)} device(s)",
+            _table(["Name", "IP", "Manufacturer", "Model", "Tx channels"], rows))
+
+
 def qsys_snapshot(data):
     comps = data["components"]
     controls = sum(len(c.get("controls", {})) for c in comps.values())
@@ -156,9 +173,13 @@ def classify(data):
         return extron_backup
     if _is_list_of(data, "ip", "online"):
         return monitor_status
+    if _is_list_of(data, "name", "addresses", "services"):
+        return dante_devices
     if isinstance(data, dict):
         if "findings" in data and "totals" in data:
             return bom_audit
+        if "findings" in data and "rules" in data:
+            return companion_check
         if isinstance(data.get("components"), dict):
             return qsys_snapshot
         if isinstance(data.get("blocks"), dict):
